@@ -1,0 +1,483 @@
+from cmu_112_graphics import *
+import random
+import math
+import csv
+import pygame
+
+
+#music: Stereo Madness by Forever Bound
+
+class Sound():
+    def __init__(self, path):
+        self.path = path
+        self.loops = 1
+        pygame.mixer.music.load(path)
+    def isPlaying(self):
+        return bool(pygame.mixer.music.get_busy())
+    def start(self):
+        pygame.mixer.music.play(loops=-1)
+    def stop(self):
+        pygame.mixer.music.stop()
+
+def appStarted(app):
+    app.mode = 'menuMode'
+    app.leaderboard = []
+    pygame.mixer.init()
+    app.sound = Sound("TPMusic.mp3")
+    loadLeaderBoard(app)
+    print(app.leaderboard)
+    resetVariables(app)
+    return
+
+def updateLeaderBoard(app):
+    #https://docs.python.org/3/library/csv.html
+    app.leaderboard.append(int(round(app.score, 0)))
+    app.leaderboard.sort()
+    app.leaderboard = app.leaderboard[::-1][:10]
+    # app.leaderboard.add(0,"scores")
+    f = open('leaderboard.csv', 'w')
+    writer = csv.writer(f)
+    writer.writerow(app.leaderboard)
+
+def loadLeaderBoard(app): #inspired from hw5 loadMedicalImage
+    #https://stackoverflow.com/questions/17912307/u-ufeff-in-python-string
+    filename = "leaderboard.csv"
+    with open(filename, mode='r', encoding='utf-8-sig') as f:
+        for score in f.readline().split(','):
+            app.leaderboard.append(int(score))
+    # app.leaderboard.pop(0)
+
+def resetVariables(app):
+    #misc
+    app.timerDelay = 1
+    app.objectWidth = app.width//20 
+    app.counter = 0
+    app.paused = False
+    app.portalCounter = 0
+    app.score = 0
+
+    #player variables
+    app.player = Player(app)
+    app.speed = 15
+    app.isAlive = True
+    app.spaceShip = False
+
+    #environment variables
+    app.groundY = 4*app.height//5
+    app.backgroundColor = 'light blue'
+    
+    #obstacle variables
+    app.obstacles = []
+    app.nextObstacleTime = 50
+    app.structures = ["spikes","blocks","portal"]
+    app.portalObstacles = False
+
+class Obstacle():
+    def __init__(self,x,y,speed):
+        self.x = x
+        self.y = y
+        self.speed = speed
+
+    def move(self):
+        self.x -= self.speed
+
+class Spike(Obstacle):
+    def __init__(self,x,y,speed):
+        super().__init__(x,y,speed)
+    def move(self):
+        super().move()
+
+class Trail(Obstacle):
+    def __init__(self,x,y,speed):
+        super().__init__(x,y,speed)
+    def move(self):
+        super().move()
+
+class Block(Obstacle):
+    def __init__(self,x,y,width,height,speed):
+        super().__init__(x,y,speed)
+        self.width = width
+        self.height = height
+    def move(self):
+        super().move()
+
+class Portal(Obstacle):
+    def __init__(self,x,y,speed):
+        self.x = x
+        self.y = y
+        self.speed = speed
+        self.used = False
+
+    def move(self):
+        self.x -= self.speed
+
+class Player():
+    def __init__(self,app):
+        self.width = app.objectWidth
+        self.x = app.width//5
+        self.y = 4*app.height//5 - self.width//2
+        self.radius = math.sqrt(((app.objectWidth//2)**2)*2)
+        self.angle = 3*math.pi/4
+        self.dy = 0
+        self.color = 'blue'
+        self.jumpHeight = self.width*3
+        self.trajectory = 0
+        self.tempY = self.y
+        self.blockHeight = 0
+        self.tempBlockHeight = 0
+        self.onTopOf = []
+
+    def jump(self,app):
+        if not app.spaceShip:
+            self.y += (app.objectWidth//5)*self.trajectory
+            self.angle+=math.pi/(30)
+            if self.y <= self.tempY - self.jumpHeight:
+                self.trajectory = 1
+            if self.y >= self.tempY + \
+                (self.tempBlockHeight-self.blockHeight)*app.objectWidth:
+                self.y = self.tempY +\
+                    (self.tempBlockHeight-self.blockHeight)*app.objectWidth
+                self.angle = 3*math.pi/4
+                self.trajectory = 0
+        else: 
+            if self.y>=app.groundY-app.objectWidth//3:
+                if self.trajectory == 1:
+                    self.trajectory = 0
+            if self.y<=0:
+                if self.trajectory == -1:
+                    self.trajectory = 0
+            self.y += (app.objectWidth//5)*self.trajectory
+            
+def gameMode_keyPressed(app,event):
+    if event.key == 'Space':
+        if not app.paused:
+            if not app.spaceShip:
+                if app.player.trajectory ==0:
+                    app.player.trajectory = -1
+            else:
+                app.player.trajectory = -1
+    if event.key == 'p':
+        app.paused = not app.paused
+
+def gameMode_keyReleased(app,event):
+    if event.key == 'Space':
+        if not app.paused:
+            if app.spaceShip:
+                app.player.trajectory = 1
+
+def loseMode_mousePressed(app,event):
+    if event.x>app.width//5 and event.y> 2*app.height//5\
+        and event.x<2*app.width//5 and event.y<3*app.height//5:
+        app.mode = 'gameMode'
+        app.sound.start()
+        resetVariables(app)
+        
+    elif event.x>3*app.width//5 and event.y>2*app.height//5\
+        and event.x<4*app.width//5 and event.y<3*app.height//5:
+        app.mode = 'menuMode'
+        resetVariables(app)
+    pass
+
+
+def menuMode_mousePressed(app,event):
+    if event.x>2*app.width//5 and event.x<3*app.width//5 and\
+        event.y>3*app.height//5 and event.y<4*app.height//5:
+        app.isAlive = True
+        app.mode = 'gameMode'
+        app.sound.start()
+        app.spaceShip = False
+        app.score = 0
+    elif event.x>9*app.width//20 and event.y> 17*app.height//20 and \
+        event.x<11*app.width//20 and event.y< 18*app.height//20:
+        app.mode = 'instructions'
+    elif event.x>2*app.width//5 and event.y>9*app.height//20 and\
+        event.x<3*app.width//5 and event.y<11*app.height//20:
+        app.mode = 'leaderBoard'
+
+def leaderBoard_mousePressed(app,event):
+    if event.x>app.width/20 and event.y>app.height/20 and\
+        event.x<app.width/10 and event.y<app.height/10:
+        app.mode = 'menuMode'
+
+def instructions_mousePressed(app,event):
+    if event.x>app.width/20 and event.y>app.height/20 and\
+        event.x<app.width/10 and event.y<app.height/10:
+        app.mode = 'menuMode'
+
+
+def gameMode_timerFired(app):
+    if not app.paused:
+        app.counter += 1
+        app.score+=0.1
+        #player
+        #jump mechanics       
+        if app.player.trajectory == 0:
+            app.player.tempY = app.player.y
+            app.player.tempBlockHeight = app.player.blockHeight
+        if app.player.trajectory != 0:
+            app.player.jump(app)
+        #obstacles
+        for obstacle in app.obstacles:
+            if app.isAlive:
+            #movement
+                obstacle.move()
+            #removal
+                if type(obstacle) == Spike:
+                    if obstacle.x < -app.objectWidth:
+                        app.obstacles.remove(obstacle)
+                if type(obstacle) == Block:
+                    if obstacle.x < -app.objectWidth*obstacle.width:
+                        app.obstacles.remove(obstacle)
+                if type(obstacle) == Portal:
+                    if obstacle.x < -app.objectWidth:
+                        app.obstacles.remove(obstacle)
+                if type(obstacle) == Trail:
+                    if obstacle.x < -app.objectWidth:
+                        app.obstacles.remove(obstacle)
+                #Block - obstacle interaction
+                if type(obstacle) == Spike:
+                    if app.player.x+app.objectWidth//2<obstacle.x or\
+                    app.player.x>obstacle.x+app.objectWidth or\
+                    app.player.y+app.objectWidth//2<obstacle.y or\
+                        app.player.y-app.objectWidth//2>\
+                            obstacle.y+app.objectWidth:
+                        app.isAlive = True
+                    else:
+                        app.isAlive = False
+                        app.mode = 'loseMode'
+                        updateLeaderBoard(app)
+                        app.sound.stop()
+                if type(obstacle) == Block:
+                    if app.player.x+app.objectWidth//2<obstacle.x or\
+                    app.player.x>obstacle.x+app.objectWidth*obstacle.width or\
+                    app.player.y+app.objectWidth//2<obstacle.y:
+                        app.isAlive = True
+                    else:
+                        if app.player.x>obstacle.x:
+                            app.isAlive = True
+                            app.player.blockHeight = 1
+                            app.player.onTopOf.append(obstacle)
+                        else:
+                            app.isAlive = False
+                            app.mode = 'loseMode'
+                            updateLeaderBoard(app)
+                            app.sound.stop()
+                    if obstacle in app.player.onTopOf and \
+                       app.player.x-app.objectWidth>\
+                        obstacle.x+app.objectWidth*obstacle.width:
+                        app.player.trajectory = 1
+                        app.player.blockHeight = 0
+                if app.player.y<=0:
+                    app.isAlive = False
+                    app.mode = 'loseMode'
+                    updateLeaderBoard(app)
+                    app.sound.stop()
+                if type(obstacle) == Portal:
+                    if app.player.x>obstacle.x and not obstacle.used:
+                        app.player.tempY = app.groundY-app.objectWidth//2
+                        app.spaceShip = not app.spaceShip
+                        app.player.trajectory = -1
+                        obstacle.used = True
+        #creation
+        if app.counter == app.nextObstacleTime:
+            app.counter = 0
+            if app.portalCounter == 0:
+                if app.portalObstacles:
+                    nextStructure = ['spikes','portal'][random.randint(0,1)]
+                else:
+                    nextStructure = app.structures[random.randint(0,2)]
+                if nextStructure == "portal":
+                    if app.spaceShip:
+                        app.portalCounter = 10
+                    else:
+                        app.portalCounter = 5
+            else: 
+                if not app.portalObstacles:
+                    nextStructure = app.structures[random.randint(0,1)]
+                else:
+                    nextStructure = "spikes"
+                app.portalCounter -=1
+            #spike creation
+            if nextStructure == "spikes":
+                if not app.portalObstacles:
+                    count = random.randint(1,3)
+                    for i in range(count):
+                        app.obstacles.append(Spike(app.width*2 + \
+                            i*app.objectWidth,\
+                            app.groundY - app.objectWidth,app.speed))
+                    app.nextObstacleTime = 50
+                else:
+                    app.obstacles.append(Spike(app.width*2+app.objectWidth,\
+                        random.randint(0,app.groundY-app.objectWidth),\
+                            app.speed))
+                    app.nextObstacleTime = 25
+            #block creation
+            if nextStructure == "blocks":
+                width = random.randint(5,20)
+                height = 1
+                app.obstacles.append(Block(app.width*2,\
+                        app.groundY-app.objectWidth*height,\
+                            width,height,app.speed))
+                app.nextObstacleTime = \
+                50+ (app.objectWidth*width)//app.speed
+            if nextStructure == "portal":
+                app.obstacles.append(Portal(app.width*2+app.objectWidth,\
+                    app.groundY - app.objectWidth*3, app.speed))
+                app.portalObstacles = not app.portalObstacles
+                app.nextObstacleTime = 50 
+        if app.spaceShip:
+            app.obstacles.append(Trail(app.player.x,app.player.y,app.speed))
+    return
+
+def drawBackground(app,canvas,color):
+    canvas.create_rectangle(0,0,app.width,app.height,fill = color,\
+                            outline = 'black')
+
+def drawPlayer(app,canvas):
+        if app.isAlive:
+            if not app.spaceShip:
+                canvas.create_polygon(app.player.x+\
+                                    app.player.radius*math.cos(app.player.angle),\
+                                    app.player.y+\
+                                    app.player.radius*math.sin(app.player.angle),\
+                                        app.player.x+\
+                                    app.player.radius*math.cos(app.player.angle+\
+                                        math.pi/2),app.player.y+\
+                                    app.player.radius*math.sin(app.player.angle+\
+                                        math.pi/2),app.player.x+\
+                                    app.player.radius*math.cos(app.player.angle+\
+                                        math.pi),app.player.y+\
+                                    app.player.radius*math.sin(app.player.angle+\
+                                        math.pi),app.player.x+\
+                                    app.player.radius*math.cos(app.player.angle+\
+                                        3*math.pi/2),app.player.y+\
+                                    app.player.radius*math.sin(app.player.angle+\
+                                        3*math.pi/2),\
+                                    fill = app.player.color,outline = 'black')
+            else:
+                canvas.create_rectangle(app.player.x-app.objectWidth//2,\
+                    app.player.y,app.player.x+app.objectWidth//2,\
+                        app.player.y+app.objectWidth//2,fill='black',\
+                            outline = 'black')
+                canvas.create_rectangle(app.player.x-app.objectWidth//3,\
+                    app.player.y-app.objectWidth//2,\
+                        app.player.x+app.objectWidth//3,app.player.y,\
+                            fill = app.player.color,outline = 'black')
+                pass
+def drawObstacles(app,canvas):
+    for obstacle in app.obstacles:
+        if type(obstacle) == Spike:
+            canvas.create_polygon(obstacle.x+app.objectWidth//2,obstacle.y,\
+                                  obstacle.x,obstacle.y+app.objectWidth,\
+                                  obstacle.x+app.objectWidth,\
+                                  obstacle.y+app.objectWidth,fill = 'black',\
+                                  outline = 'black')
+        if type(obstacle) == Block:
+            canvas.create_rectangle(obstacle.x,obstacle.y,\
+                                    obstacle.x+app.objectWidth*obstacle.width,\
+                                    obstacle.y+app.objectWidth*obstacle.height,\
+                                    fill = 'black',outline = 'black')
+        if type(obstacle) == Portal:
+            canvas.create_oval(obstacle.x,obstacle.y,\
+                obstacle.x+app.objectWidth,obstacle.y+app.objectWidth*3,\
+                    fill = 'magenta',outline = 'black')
+        if type(obstacle) == Trail:
+            displacement = random.randint(-10,10)
+            canvas.create_rectangle(obstacle.x-app.objectWidth//8,\
+                obstacle.y-app.objectWidth//8+displacement,\
+                    obstacle.x+app.objectWidth//8,\
+                    obstacle.y+app.objectWidth//8 + displacement,fill='orange',\
+                        outline='black')
+
+def drawGround(app,canvas):
+    canvas.create_rectangle(0,app.groundY,app.width,app.height,fill = 'black',\
+                            outline = 'black')
+
+def gameMode_redrawAll(app,canvas):
+    drawBackground(app,canvas,app.backgroundColor)
+    drawObstacles(app,canvas)
+    drawPlayer(app,canvas)
+    drawGround(app,canvas)
+    canvas.create_text(app.width/20,app.height/20,text = \
+        f'Score: {(int)(app.score)}',fill = 'black',font = 'Arial 20')
+    if app.paused:
+        canvas.create_text(app.width//2,app.height//3,text = 'Paused',
+        fill = 'black',font = 'Arial 50 bold')
+
+def loseMode_redrawAll(app,canvas):
+    canvas.create_rectangle(0,0,app.width,app.height,fill = 'light blue')
+    canvas.create_text(app.width//2,app.height//4,\
+        text = f'You Lose! Score: {(int)(app.score)}',\
+        fill = 'red',font = 'Arial 30')
+    canvas.create_rectangle(app.width//5,2*app.height//5,\
+        2*app.width//5,3*app.height//5,fill = 'green',outline = 'black')
+    canvas.create_text(3*app.width//10,app.height//2,\
+        text = 'Restart',fill = 'black',font = 'Arial 20')
+    canvas.create_rectangle(3*app.width//5,2*app.height//5,\
+        4*app.width//5,3*app.height//5,fill = 'red',outline = 'black')
+    canvas.create_text(7*app.width//10,app.height//2,\
+        text = 'Menu',fill = 'black',font = 'Arial 20')
+
+def menuMode_redrawAll(app,canvas):
+    canvas.create_rectangle(0,0,app.width,app.height,fill = 'light blue')
+    canvas.create_text(app.width//2,app.height//3,text = "Block Dash",\
+        fill = 'dark blue',font = 'Arial 60')
+    canvas.create_rectangle(2*app.width//5,3*app.height//5,3*app.width//5,\
+        4*app.height//5,fill = 'green',outline = 'black')
+    canvas.create_text(app.width//2,7*app.height//10,fill = 'black',\
+        text = 'Start',font = 'Arial 30')
+    canvas.create_rectangle(9*app.width//20,17*app.height//20,11*app.width//20,\
+        18*app.height//20,fill = 'grey',outline = 'black')
+    canvas.create_text(app.width//2,7*app.height//8,fill = 'black',\
+        text = 'How to play',font = 'Arial 15')
+    canvas.create_rectangle(2*app.width//5,9*app.height//20,3*app.width//5,\
+        11*app.height//20,fill = 'yellow',outline = 'black')
+    canvas.create_text(app.width//2,app.height//2,fill = 'black',\
+        font = 'Arial 20',text = 'Leaderboard')
+    
+def leaderBoard_redrawAll(app,canvas):
+    canvas.create_rectangle(0,0,app.width,app.height,fill = 'light blue')
+    canvas.create_rectangle(app.width/20,app.height/20,\
+        app.width/10,app.height/10,fill = 'grey',outline = 'black')
+    canvas.create_text(3*app.width/40,3*app.height/40,text ='Menu',fill='black')
+    leadersText = ""
+    for i in range (len(app.leaderboard)):
+        leadersText += str(app.leaderboard[i]) + "\n"
+    canvas.create_text(app.width//2,app.height//2,text = leadersText,\
+        fill = 'black',font = 'Arial 30')
+
+
+def instructions_redrawAll(app,canvas):
+    canvas.create_rectangle(0,0,app.width,app.height,fill = 'light blue')
+    canvas.create_polygon(app.width//8+app.objectWidth//2,\
+        app.height*3/20,app.width//8,app.height*3/20+app.objectWidth,\
+        app.width//8+app.objectWidth,\
+        app.height*3/20+app.objectWidth,fill = 'black',outline = 'black')
+    canvas.create_text(app.width/2,app.height*4/20,\
+        text = 'This is a Spike, if you touch this you will lose',\
+            font = 'Arial 20',fill = 'black')
+    canvas.create_rectangle(app.width//8,app.height*6/20,\
+                                    app.width//8+app.objectWidth,\
+                                    app.height*6/20+app.objectWidth,\
+                                    fill = 'black',outline = 'black')
+    canvas.create_text(app.width/2,app.height*7/20,\
+        text = 'This is a Block, do not crash into it but you can jump on top',\
+            font = 'Arial 20',fill = 'black')
+    canvas.create_oval(app.width//8,app.height*9/20,\
+                app.width//8+app.objectWidth,app.height*9/20+app.objectWidth*3,\
+                    fill = 'magenta',outline = 'black')
+    canvas.create_text(app.width/2,app.height*12/20,\
+        text = 'This is a Portal, it will transform you into a spaceship\n'+\
+            '(if you touch the top as a spaceship you lose)',\
+            font = 'Arial 20',fill = 'black')
+    canvas.create_text(app.width/2,app.height*16/20,\
+        text = 'Press space to jump and press p to pause',\
+             fill = 'red', font = 'Arial 20')
+    canvas.create_rectangle(app.width/20,app.height/20,\
+        app.width/10,app.height/10,fill = 'grey',outline = 'black')
+    canvas.create_text(3*app.width/40,3*app.height/40,text ='Menu',fill='black')
+
+def main():
+    runApp(width = 1000, height = 500)
+
+main()
